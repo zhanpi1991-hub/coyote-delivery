@@ -8,6 +8,11 @@ from app.database import SessionLocal, engine, Base
 from app.models import Product, Courier, Order, OrderItem, User
 
 def seed():
+    # Safety guard: Prevent accidental data destruction on live/historical databases
+    if "--force-clean-test-db" not in sys.argv:
+        print("SAFETY GUARD: seed.py will wipe all data. If you intend to clean a test DB, run with --force-clean-test-db")
+        return
+
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
 

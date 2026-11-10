@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import type { Product, CartItem, Order } from './types';
+import type { Product, CartItem, Order, User } from './types';
 import { api } from './services/api';
 import { Navbar } from './components/Navbar';
 import { CustomerMenu } from './components/CustomerMenu';
@@ -7,11 +7,14 @@ import { CartDrawer } from './components/CartDrawer';
 import { OrderTracking } from './components/OrderTracking';
 import { CoffeeShopDashboard } from './components/CoffeeShopDashboard';
 import { CourierDashboard } from './components/CourierDashboard';
+import { AuthModal } from './components/AuthModal';
 import { Logo } from './components/Logo';
 import { ToastContainer, type ToastMessage } from './components/Toast';
 
 export const App: React.FC = () => {
   const [activeRole, setActiveRole] = useState<'customer' | 'admin' | 'courier'>('customer');
+  const [currentUser, setCurrentUser] = useState<User | null>(() => api.getCurrentUser());
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -28,6 +31,7 @@ export const App: React.FC = () => {
 
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [trackedOrderId, setTrackedOrderId] = useState<number | null>(null);
+  const [trackedOrderToken, setTrackedOrderToken] = useState<string | null>(null);
 
   const addToast = (type: 'success' | 'info' | 'error', title: string, description?: string) => {
     const id = Math.random().toString(36).substring(2, 9);
@@ -38,6 +42,29 @@ export const App: React.FC = () => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
+  // Listen to 401 unauthorized session expiration
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setCurrentUser(null);
+      addToast('info', 'Session Expired', 'Please sign in to continue.');
+    };
+
+    window.addEventListener('coyote:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('coyote:unauthorized', handleUnauthorized);
+  }, []);
+
+  // Verify active user profile on app load
+  useEffect(() => {
+    if (api.getToken()) {
+      api.getMe()
+        .then((user) => setCurrentUser(user))
+        .catch(() => {
+          api.logout();
+          setCurrentUser(null);
+        });
+    }
+  }, []);
+
   // Sync cart to localStorage
   useEffect(() => {
     try {
@@ -47,13 +74,24 @@ export const App: React.FC = () => {
     }
   }, [cart]);
 
-  // Load products from API
+  // Load products from API & sanitize cart against real products
   useEffect(() => {
     const loadProducts = async () => {
       setLoadingProducts(true);
       try {
         const data = await api.getProducts();
         setProducts(data);
+
+        // Sanitize cart items: prune removed items and update prices to server values
+        setCart((prevCart) => {
+          return prevCart
+            .map((item) => {
+              const currentProd = data.find((p) => p.id === item.product.id);
+              if (!currentProd || !currentProd.available) return null;
+              return { product: currentProd, quantity: Math.min(item.quantity, 50) };
+            })
+            .filter(Boolean) as CartItem[];
+        });
       } catch (err) {
         console.error('Failed to load products', err);
         addToast('error', 'Failed to load menu', 'Could not connect to roastery backend.');
@@ -65,11 +103,17 @@ export const App: React.FC = () => {
   }, []);
 
   const handleAddToCart = (product: Product) => {
+    if (!product.available) {
+      addToast('error', 'Out of Stock', `${product.name} is currently unavailable.`);
+      return;
+    }
+
     setCart((prev) => {
       const existing = prev.find((item) => item.product.id === product.id);
       if (existing) {
+        const newQty = Math.min(existing.quantity + 1, 50);
         return prev.map((item) =>
-          item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
+          item.product.id === product.id ? { ...item, quantity: newQty } : item
         );
       }
       return [...prev, { product, quantity: 1 }];
@@ -83,7 +127,7 @@ export const App: React.FC = () => {
         .map((item) => {
           if (item.product.id === productId) {
             const newQty = item.quantity + delta;
-            return newQty > 0 ? { ...item, quantity: newQty } : null;
+            return newQty > 0 ? { ...item, quantity: Math.min(newQty, 50) } : null;
           }
           return item;
         })
@@ -100,14 +144,48 @@ export const App: React.FC = () => {
   };
 
   const handleOrderSuccess = (newOrder: Order) => {
-    setTrackedOrderId(newOrder.id);
+    if (newOrder.tracking_token) {
+      setTrackedOrderToken(newOrder.tracking_token);
+      setTrackedOrderId(null);
+    } else if (newOrder.id) {
+      setTrackedOrderId(newOrder.id);
+      setTrackedOrderToken(null);
+    }
     setActiveRole('customer');
-    addToast('success', `Order #${newOrder.id} Placed!`, 'Your order has been sent to the coffee shop.');
+    addToast(
+      'success',
+      `Order Placed!`,
+      `Order confirmed. Live progress updates active.`
+    );
   };
 
-  const handleTrackOrder = (orderId: number) => {
-    setTrackedOrderId(orderId);
+  const handleTrackOrder = (identifier: string) => {
+    const numericId = parseInt(identifier, 10);
+    if (!isNaN(numericId) && numericId.toString() === identifier.trim()) {
+      setTrackedOrderId(numericId);
+      setTrackedOrderToken(null);
+    } else {
+      setTrackedOrderToken(identifier.trim());
+      setTrackedOrderId(null);
+    }
     setActiveRole('customer');
+  };
+
+  const handleAuthSuccess = (user: User) => {
+    setCurrentUser(user);
+    if (user.role === 'courier') {
+      setActiveRole('courier');
+    } else if (user.role === 'staff' || user.role === 'admin') {
+      setActiveRole('admin');
+    }
+    addToast('success', `Welcome, ${user.name}!`, `Authenticated as ${user.role.toUpperCase()}`);
+  };
+
+  const handleLogout = () => {
+    api.logout();
+    setCurrentUser(null);
+    setActiveRole('customer');
+    addToast('info', 'Signed Out', 'You have been signed out.');
   };
 
   const totalCartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
@@ -121,8 +199,11 @@ export const App: React.FC = () => {
           setActiveRole(role);
         }}
         cartCount={totalCartCount}
+        currentUser={currentUser}
         onOpenCart={() => setIsCartOpen(true)}
         onTrackOrder={handleTrackOrder}
+        onOpenAuth={() => setIsAuthModalOpen(true)}
+        onLogout={handleLogout}
       />
 
       {/* Brand & Demo Switcher Helper Banner */}
@@ -131,25 +212,25 @@ export const App: React.FC = () => {
           <div className="flex items-center gap-2">
             <span className="w-1.5 h-1.5 rounded-full bg-[#D98943] animate-pulse" />
             <span className="font-mono uppercase tracking-wider text-[11px] text-[#FAFAF7]">
-              Coyote Delivery System
+              Coyote Delivery 1.1
             </span>
             <span className="hidden sm:inline text-[#8A7668]">•</span>
             <span className="text-[#8A7668] hidden sm:inline text-[11px]">
-              One Connected Delivery Workflow
+              One Connected Delivery Workflow • Argon2id & JWT Auth
             </span>
           </div>
 
           <div className="flex items-center gap-2 text-[11px] font-mono">
-            <span className="text-[#8A7668]">Role Sandbox:</span>
+            <span className="text-[#8A7668]">Sandbox View:</span>
             <button
-              onClick={() => { setActiveRole('customer'); setTrackedOrderId(null); }}
+              onClick={() => { setActiveRole('customer'); setTrackedOrderId(null); setTrackedOrderToken(null); }}
               className={`px-2.5 py-0.5 rounded-full transition-colors cursor-pointer ${
-                activeRole === 'customer' && !trackedOrderId
+                activeRole === 'customer' && !trackedOrderId && !trackedOrderToken
                   ? 'bg-[#D98943] text-[#21150F] font-bold'
                   : 'text-[#A69689] hover:text-white'
               }`}
             >
-              1. Guest Menu
+              1. Customer Storefront
             </button>
             <button
               onClick={() => setActiveRole('admin')}
@@ -159,7 +240,7 @@ export const App: React.FC = () => {
                   : 'text-[#A69689] hover:text-white'
               }`}
             >
-              2. POS Kitchen
+              2. Kitchen POS & Admin
             </button>
             <button
               onClick={() => setActiveRole('courier')}
@@ -169,7 +250,7 @@ export const App: React.FC = () => {
                   : 'text-[#A69689] hover:text-white'
               }`}
             >
-              3. Courier App
+              3. Courier Field App
             </button>
           </div>
         </div>
@@ -178,10 +259,11 @@ export const App: React.FC = () => {
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-8 sm:pt-10">
         {activeRole === 'customer' && (
-          trackedOrderId ? (
+          (trackedOrderId || trackedOrderToken) ? (
             <OrderTracking
               orderId={trackedOrderId}
-              onBackToMenu={() => setTrackedOrderId(null)}
+              trackingToken={trackedOrderToken}
+              onBackToMenu={() => { setTrackedOrderId(null); setTrackedOrderToken(null); }}
             />
           ) : (
             <CustomerMenu
@@ -195,9 +277,19 @@ export const App: React.FC = () => {
           )
         )}
 
-        {activeRole === 'admin' && <CoffeeShopDashboard />}
+        {activeRole === 'admin' && (
+          <CoffeeShopDashboard
+            currentUser={currentUser}
+            onOpenAuthModal={() => setIsAuthModalOpen(true)}
+          />
+        )}
 
-        {activeRole === 'courier' && <CourierDashboard />}
+        {activeRole === 'courier' && (
+          <CourierDashboard
+            currentUser={currentUser}
+            onOpenAuthModal={() => setIsAuthModalOpen(true)}
+          />
+        )}
       </main>
 
       {/* Cart Drawer */}
@@ -205,10 +297,18 @@ export const App: React.FC = () => {
         isOpen={isCartOpen}
         onClose={() => setIsCartOpen(false)}
         cart={cart}
+        currentUser={currentUser}
         onUpdateQuantity={handleUpdateQuantity}
         onRemoveItem={handleRemoveItem}
         onClearCart={handleClearCart}
         onOrderSuccess={handleOrderSuccess}
+      />
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onAuthSuccess={handleAuthSuccess}
       />
 
       {/* Toast Notification Container */}

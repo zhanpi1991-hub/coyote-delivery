@@ -8,8 +8,14 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     name = Column(String(100), nullable=False)
-    phone = Column(String(30), nullable=False)
+    phone = Column(String(30), nullable=False, unique=True, index=True)
     role = Column(String(30), default="customer")  # customer, staff, courier, admin
+    password_hash = Column(String(255), nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    courier = relationship("Courier", back_populates="user", uselist=False)
+    orders = relationship("Order", back_populates="customer")
 
 class Courier(Base):
     __tablename__ = "couriers"
@@ -18,7 +24,9 @@ class Courier(Base):
     name = Column(String(100), nullable=False)
     phone = Column(String(30), nullable=False)
     availability_status = Column(String(30), default="available")  # available, busy, offline
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=True)
 
+    user = relationship("User", back_populates="courier")
     orders = relationship("Order", back_populates="courier")
 
 class Product(Base):
@@ -46,7 +54,10 @@ class Order(Base):
     courier_id = Column(Integer, ForeignKey("couriers.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    tracking_token = Column(String(64), unique=True, index=True, nullable=True)
+    idempotency_key = Column(String(100), unique=True, index=True, nullable=True)
 
+    customer = relationship("User", back_populates="orders")
     courier = relationship("Courier", back_populates="orders")
     items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
 
@@ -62,3 +73,9 @@ class OrderItem(Base):
 
     order = relationship("Order", back_populates="items")
     product = relationship("Product")
+
+class GuestOrderSession(Base):
+    __tablename__ = "guest_order_sessions"
+
+    order_id = Column(Integer, primary_key=True)
+    session_id = Column(String(128), nullable=False, index=True)

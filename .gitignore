@@ -23,5 +23,11 @@ Thumbs.db
 
 # Local databases
 *.db
+*.bak
+*.db.bak
+*.audit_backup
+*.security_review_backup
+*_backup
 *.sqlite
 *.sqlite3
+*.zip

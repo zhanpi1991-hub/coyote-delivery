@@ -1,33 +1,38 @@
 import React, { useState, useEffect } from 'react';
-import type { Order, Courier } from '../types';
+import type { Order, User } from '../types';
 import { api } from '../services/api';
 import {
   Bike, CheckCircle2, RefreshCw,
-  Navigation, PackageCheck, Phone, Check
+  Navigation, PackageCheck, Phone, Check, Lock, ShieldCheck
 } from 'lucide-react';
 
-export const CourierDashboard: React.FC = () => {
-  const [couriers, setCouriers] = useState<Courier[]>([]);
-  const [selectedCourierId, setSelectedCourierId] = useState<number>(1);
+interface CourierDashboardProps {
+  currentUser?: User | null;
+  onOpenAuthModal?: () => void;
+}
+
+export const CourierDashboard: React.FC<CourierDashboardProps> = ({
+  currentUser,
+  onOpenAuthModal,
+}) => {
   const [activeTab, setActiveTab] = useState<'available' | 'active' | 'completed'>('available');
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
 
+  const isCourierUser = currentUser && currentUser.role === 'courier';
+
   const fetchCouriersAndOrders = async (isBackground = false) => {
     if (!isBackground) setLoading(true);
     try {
-      const [couriersList, ordersList] = await Promise.all([
-        api.getCouriers(),
-        api.getCourierOrders(selectedCourierId),
-      ]);
-      setCouriers(couriersList);
-      if (couriersList.length > 0 && !selectedCourierId) {
-        setSelectedCourierId(couriersList[0].id);
+      if (isCourierUser) {
+        const ordersList = await api.getCourierOrders();
+        setOrders(ordersList);
+      } else {
+        setOrders([]);
       }
-      setOrders(ordersList);
     } catch (err: any) {
-      console.error(err);
+      console.error('Failed to sync courier orders', err);
     } finally {
       if (!isBackground) setLoading(false);
     }
@@ -35,19 +40,20 @@ export const CourierDashboard: React.FC = () => {
 
   useEffect(() => {
     fetchCouriersAndOrders();
-  }, [selectedCourierId]);
+  }, [currentUser]);
 
   useEffect(() => {
+    if (!isCourierUser) return;
     const interval = setInterval(() => {
       fetchCouriersAndOrders(true);
     }, 3000);
     return () => clearInterval(interval);
-  }, [selectedCourierId]);
+  }, [currentUser]);
 
   const handleAcceptOrder = async (orderId: number) => {
     setActionLoading(orderId);
     try {
-      await api.courierAcceptOrder(orderId, selectedCourierId);
+      await api.courierAcceptOrder(orderId);
       setActiveTab('active');
       await fetchCouriersAndOrders(true);
     } catch (err: any) {
@@ -60,7 +66,7 @@ export const CourierDashboard: React.FC = () => {
   const handlePickupOrder = async (orderId: number) => {
     setActionLoading(orderId);
     try {
-      await api.courierPickupOrder(orderId, selectedCourierId);
+      await api.courierPickupOrder(orderId);
       await fetchCouriersAndOrders(true);
     } catch (err: any) {
       alert(`Pickup failed: ${err.message}`);
@@ -72,7 +78,7 @@ export const CourierDashboard: React.FC = () => {
   const handleDeliverOrder = async (orderId: number) => {
     setActionLoading(orderId);
     try {
-      await api.courierDeliverOrder(orderId, selectedCourierId);
+      await api.courierDeliverOrder(orderId);
       setActiveTab('completed');
       await fetchCouriersAndOrders(true);
     } catch (err: any) {
@@ -82,277 +88,260 @@ export const CourierDashboard: React.FC = () => {
     }
   };
 
-  // Filter orders
+  // Filter orders for the authenticated courier
+  const myCourierId = currentUser?.courier_id;
+
   const availableOrders = orders.filter(
     (o) => !o.courier_id && ['READY_FOR_PICKUP', 'ACCEPTED', 'PREPARING'].includes(o.status)
   );
 
   const activeOrders = orders.filter(
-    (o) => o.courier_id === selectedCourierId && ['COURIER_ASSIGNED', 'PICKED_UP', 'READY_FOR_PICKUP'].includes(o.status)
+    (o) => o.courier_id === myCourierId && ['COURIER_ASSIGNED', 'PICKED_UP', 'READY_FOR_PICKUP'].includes(o.status)
   );
 
   const completedOrders = orders.filter(
-    (o) => o.courier_id === selectedCourierId && o.status === 'DELIVERED'
+    (o) => o.courier_id === myCourierId && o.status === 'DELIVERED'
   );
 
   const displayedOrders =
     activeTab === 'available' ? availableOrders :
     activeTab === 'active' ? activeOrders : completedOrders;
 
+  // If not signed in as a courier, require sign in
+  if (!isCourierUser) {
+    return (
+      <div className="max-w-xl mx-auto py-16 px-6 text-center bg-white rounded-3xl border border-[#E8DAC8] shadow-sm">
+        <div className="w-16 h-16 rounded-2xl bg-[#21150F] text-[#D98943] flex items-center justify-center mx-auto mb-4 shadow-md">
+          <Bike className="w-8 h-8" />
+        </div>
+        <h2 className="text-2xl font-serif font-bold text-[#21150F] mb-2">Courier Fleet Authentication Required</h2>
+        <p className="text-xs text-[#8A7668] mb-6 leading-relaxed max-w-md mx-auto">
+          To protect customer privacy and prevent unauthorized delivery claims, the courier field interface requires signing in with a verified courier fleet account.
+        </p>
+
+        {onOpenAuthModal && (
+          <button
+            onClick={onOpenAuthModal}
+            className="px-6 py-3 bg-[#21150F] hover:bg-[#382216] text-[#FAFAF7] rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer inline-flex items-center gap-2"
+          >
+            <Lock className="w-4 h-4 text-[#D98943]" />
+            <span>Sign In as Courier Fleet Member</span>
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div className="pb-28">
-      {/* Mobile-first Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-serif font-bold text-[#21150F] tracking-tight">
-              Courier Companion
-            </h1>
-            <span className="bg-[#FAF4EC] text-[#D98943] border border-[#D98943]/30 font-mono font-bold text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-full">
-              Fleet View
-            </span>
+    <div className="max-w-3xl mx-auto pb-28">
+      {/* Mobile-First Courier Header */}
+      <div className="bg-[#21150F] text-[#FAFAF7] rounded-3xl p-6 mb-6 shadow-xl border border-[#382216]">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-[#382216]">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-[#382216] border border-[#D98943]/30 flex items-center justify-center text-[#D98943] shrink-0">
+              <Bike className="w-6 h-6" />
+            </div>
+            <div>
+              <span className="text-[10px] font-mono uppercase tracking-widest text-[#D98943] block">
+                Coyote Fleet • Field App
+              </span>
+              <h1 className="text-2xl font-serif font-bold text-[#FAFAF7]">
+                {currentUser.name}
+              </h1>
+            </div>
           </div>
-          <p className="text-xs text-[#8A7668] mt-1 font-sans">
-            Direct Coffee Shop Pickups & Doorstep Fulfillment
-          </p>
+
+          <div className="flex items-center gap-2">
+            <span className="px-3 py-1.5 rounded-full bg-[#382216] border border-[#D98943]/40 text-[#D98943] font-mono text-xs font-bold flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Courier #{currentUser.courier_id}</span>
+            </span>
+
+            <button
+              onClick={() => fetchCouriersAndOrders()}
+              className="p-2 rounded-xl bg-[#2C1E17] border border-[#382216] text-[#A69689] hover:text-[#FAFAF7] transition-colors cursor-pointer"
+              title="Refresh Queue"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
-        {/* Courier Profile Switcher */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-full border border-[#E8DAC8] shadow-xs">
-            <Bike className="w-4 h-4 text-[#D98943]" />
-            <span className="text-xs font-mono text-[#8A7668]">Courier:</span>
-            <select
-              value={selectedCourierId}
-              onChange={(e) => setSelectedCourierId(parseInt(e.target.value, 10))}
-              className="font-serif font-bold text-xs text-[#21150F] bg-transparent focus:outline-none cursor-pointer"
-            >
-              {couriers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.phone})
-                </option>
-              ))}
-            </select>
+        {/* Courier Quick Stats Bar */}
+        <div className="grid grid-cols-3 gap-3 pt-5 text-center">
+          <div className="bg-[#2C1E17] rounded-xl p-3 border border-[#382216]">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-[#8A7668] block">Available</span>
+            <span className="text-xl font-serif font-bold text-[#D98943]">{availableOrders.length}</span>
           </div>
-
-          <button
-            onClick={() => fetchCouriersAndOrders()}
-            className="p-2.5 rounded-full bg-white border border-[#E8DAC8] text-[#21150F] hover:bg-[#FAF4EC] transition-colors cursor-pointer"
-            title="Refresh Deliveries"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-          </button>
+          <div className="bg-[#2C1E17] rounded-xl p-3 border border-[#382216]">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-[#8A7668] block">My Active</span>
+            <span className="text-xl font-serif font-bold text-white">{activeOrders.length}</span>
+          </div>
+          <div className="bg-[#2C1E17] rounded-xl p-3 border border-[#382216]">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-[#8A7668] block">Completed</span>
+            <span className="text-xl font-serif font-bold text-[#2D5A43]">{completedOrders.length}</span>
+          </div>
         </div>
       </div>
 
-      {/* Navigation Tabs */}
-      <div className="flex items-center gap-2.5 mb-8 overflow-x-auto pb-1 no-scrollbar">
+      {/* Tabs */}
+      <div className="flex border-b border-[#E8DAC8] mb-6">
         <button
           onClick={() => setActiveTab('available')}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-xs font-semibold tracking-wide transition-all cursor-pointer ${
+          className={`flex-1 py-3 text-xs font-mono font-bold uppercase tracking-wider transition-all border-b-2 cursor-pointer ${
             activeTab === 'available'
-              ? 'bg-[#21150F] text-[#F3E9DC] shadow-sm'
-              : 'bg-white text-[#8A7668] hover:text-[#21150F] hover:bg-[#FAF4EC] border border-[#E8DAC8]'
+              ? 'border-[#D98943] text-[#21150F] bg-white rounded-t-xl'
+              : 'border-transparent text-[#8A7668] hover:text-[#21150F]'
           }`}
         >
-          <span>Available Orders</span>
-          {availableOrders.length > 0 && (
-            <span className="bg-[#D98943] text-[#21150F] text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full">
-              {availableOrders.length}
-            </span>
-          )}
+          Available ({availableOrders.length})
         </button>
-
         <button
           onClick={() => setActiveTab('active')}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-xs font-semibold tracking-wide transition-all cursor-pointer ${
+          className={`flex-1 py-3 text-xs font-mono font-bold uppercase tracking-wider transition-all border-b-2 cursor-pointer ${
             activeTab === 'active'
-              ? 'bg-[#21150F] text-[#F3E9DC] shadow-sm'
-              : 'bg-white text-[#8A7668] hover:text-[#21150F] hover:bg-[#FAF4EC] border border-[#E8DAC8]'
+              ? 'border-[#D98943] text-[#21150F] bg-white rounded-t-xl'
+              : 'border-transparent text-[#8A7668] hover:text-[#21150F]'
           }`}
         >
-          <span>My Active Deliveries</span>
-          {activeOrders.length > 0 && (
-            <span className="bg-[#D98943] text-[#21150F] text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full">
-              {activeOrders.length}
-            </span>
-          )}
+          In Transit ({activeOrders.length})
         </button>
-
         <button
           onClick={() => setActiveTab('completed')}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-xs font-semibold tracking-wide transition-all cursor-pointer ${
+          className={`flex-1 py-3 text-xs font-mono font-bold uppercase tracking-wider transition-all border-b-2 cursor-pointer ${
             activeTab === 'completed'
-              ? 'bg-[#21150F] text-[#F3E9DC] shadow-sm'
-              : 'bg-white text-[#8A7668] hover:text-[#21150F] hover:bg-[#FAF4EC] border border-[#E8DAC8]'
+              ? 'border-[#D98943] text-[#21150F] bg-white rounded-t-xl'
+              : 'border-transparent text-[#8A7668] hover:text-[#21150F]'
           }`}
         >
-          <span>Completed ({completedOrders.length})</span>
+          Delivered ({completedOrders.length})
         </button>
       </div>
 
-      {/* Orders List */}
-      {loading && displayedOrders.length === 0 ? (
-        <div className="text-center py-20 bg-white rounded-3xl border border-[#E8DAC8]">
-          <RefreshCw className="w-8 h-8 text-[#D98943] animate-spin mx-auto mb-3" />
-          <p className="text-xs font-mono text-[#8A7668]">Checking delivery queue...</p>
+      {/* Order Cards List */}
+      {loading && orders.length === 0 ? (
+        <div className="text-center py-16 bg-white rounded-3xl border border-[#E8DAC8]">
+          <RefreshCw className="w-7 h-7 text-[#D98943] animate-spin mx-auto mb-2" />
+          <p className="text-xs font-mono text-[#8A7668]">Syncing deliveries...</p>
         </div>
       ) : displayedOrders.length === 0 ? (
-        <div className="text-center py-20 bg-white rounded-3xl border border-[#E8DAC8] p-8 max-w-md mx-auto">
+        <div className="text-center py-16 bg-white rounded-3xl border border-[#E8DAC8] p-8">
           <Bike className="w-12 h-12 text-[#E8DAC8] mx-auto mb-3" />
-          <h3 className="text-lg font-serif font-bold text-[#21150F] mb-1">
-            {activeTab === 'available' ? 'No orders awaiting pickup' :
-             activeTab === 'active' ? 'No active deliveries assigned' : 'No completed deliveries yet'}
+          <h3 className="text-base font-serif font-bold text-[#21150F] mb-1">
+            {activeTab === 'available' ? 'No Available Orders' :
+             activeTab === 'active' ? 'No Deliveries In Progress' : 'No Completed Deliveries Yet'}
           </h3>
-          <p className="text-xs text-[#8A7668] mb-5 leading-relaxed">
-            {activeTab === 'available' ? 'New orders prepared by the coffee shop will appear here.' :
-             activeTab === 'active' ? 'Accept orders from the Available tab to begin transit.' : 'Fulfilled deliveries will be archived here.'}
+          <p className="text-xs text-[#8A7668] max-w-sm mx-auto">
+            {activeTab === 'available'
+              ? 'When the coffee shop marks orders ready for pickup, they will appear here.'
+              : 'Accept orders from the Available tab to start delivery transit.'}
           </p>
-          {activeTab !== 'available' && (
-            <button
-              onClick={() => setActiveTab('available')}
-              className="px-5 py-2.5 bg-[#21150F] text-[#F3E9DC] text-xs font-bold rounded-full hover:bg-[#D98943] hover:text-[#21150F] transition-all cursor-pointer"
-            >
-              Check Available Orders
-            </button>
-          )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="space-y-4">
           {displayedOrders.map((order) => {
-            const isBusy = actionLoading === order.id;
+            const isBusy = actionLoading === (order.id || 0);
 
             return (
               <div
                 key={order.id}
-                className="bg-white rounded-2xl overflow-hidden border border-[#E8DAC8] shadow-xs hover:shadow-md transition-all flex flex-col justify-between"
+                className="bg-white rounded-2xl p-5 border border-[#E8DAC8] shadow-xs hover:shadow-md transition-shadow"
               >
                 {/* Header */}
-                <div className="p-4 bg-[#FAF4EC] border-b border-[#E8DAC8] flex items-center justify-between">
-                  <div>
-                    <span className="font-mono font-bold text-[#21150F] text-base">
-                      Order #{order.id}
-                    </span>
-                    <span className="text-[11px] font-mono text-[#8A7668] block">
-                      ${order.total_price.toFixed(2)} • {order.items.length} item{order.items.length === 1 ? '' : 's'}
+                <div className="flex items-center justify-between pb-3 border-b border-[#FAF4EC]">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-bold text-base text-[#21150F]">#{order.id}</span>
+                    <span className="text-[11px] font-mono text-[#8A7668]">
+                      {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
 
-                  <span className={`text-[10px] font-mono font-bold px-2.5 py-1 rounded-full uppercase tracking-wider ${
-                    order.status === 'DELIVERED' ? 'bg-[#E8F2EC] text-[#2D5A43] border border-[#2D5A43]/30' :
-                    order.status === 'PICKED_UP' ? 'bg-[#EBF5FB] text-[#2471A3] border border-[#AED6F1]' :
-                    'bg-[#FAF4EC] text-[#D98943] border border-[#D98943]/30'
-                  }`}>
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider bg-[#FAF4EC] text-[#D98943] border border-[#D98943]/30">
                     {order.status.replace(/_/g, ' ')}
                   </span>
                 </div>
 
-                {/* Content */}
-                <div className="p-5 space-y-4 flex-1">
-
-                  {/* Guest and Route Card */}
-                  <div className="space-y-3 text-xs">
+                {/* Details */}
+                <div className="py-3 space-y-2.5 text-xs">
+                  <div className="flex justify-between items-start">
                     <div>
-                      <span className="text-[#8A7668] font-mono text-[10px] uppercase tracking-wider block">Customer</span>
-                      <p className="font-serif font-bold text-[#21150F] text-base mt-0.5">{order.customer_name}</p>
+                      <div className="font-serif font-bold text-[#21150F] text-base">{order.customer_name}</div>
+                      <div className="flex items-start gap-1.5 text-[#8A7668] mt-1">
+                        <Navigation className="w-3.5 h-3.5 text-[#D98943] mt-0.5 shrink-0" />
+                        <span className="text-xs text-[#21150F] font-medium leading-snug">{order.delivery_address}</span>
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    {order.customer_phone && (
                       <a
                         href={`tel:${order.customer_phone}`}
-                        className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-[#FAF4EC] hover:bg-[#F3E9DC] text-[#21150F] font-bold text-xs border border-[#E8DAC8] transition-colors cursor-pointer"
+                        className="p-2 rounded-xl bg-[#FAF4EC] text-[#D98943] hover:bg-[#D98943] hover:text-[#21150F] transition-colors"
+                        title="Call Customer"
                       >
-                        <Phone className="w-3.5 h-3.5 text-[#D98943]" />
-                        <span className="font-mono">{order.customer_phone}</span>
+                        <Phone className="w-4 h-4" />
                       </a>
-
-                      <a
-                        href={`https://maps.google.com/?q=${encodeURIComponent(order.delivery_address)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3.5 rounded-xl bg-[#21150F] hover:bg-[#D98943] text-[#F3E9DC] hover:text-[#21150F] font-bold text-xs transition-colors cursor-pointer"
-                      >
-                        <Navigation className="w-3.5 h-3.5" />
-                        <span>Map</span>
-                      </a>
-                    </div>
-
-                    <div className="pt-2 border-t border-[#FAF4EC]">
-                      <span className="text-[#8A7668] font-mono text-[10px] uppercase tracking-wider block">Delivery Destination</span>
-                      <p className="font-semibold text-[#21150F] leading-snug mt-0.5">{order.delivery_address}</p>
-                    </div>
-
-                    {order.delivery_instructions && (
-                      <div className="bg-[#FAF4EC] p-2.5 rounded-xl border border-[#E8DAC8]">
-                        <span className="text-[#8A7668] block text-[10px] font-mono uppercase tracking-wider">Note:</span>
-                        <p className="text-[#21150F] text-xs italic font-serif mt-0.5">"{order.delivery_instructions}"</p>
-                      </div>
                     )}
                   </div>
 
-                  {/* Items list */}
-                  <div className="pt-3 border-t border-[#FAF4EC]">
-                    <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-[#8A7668] block mb-2">
-                      Manifest Contents
-                    </span>
-                    <ul className="text-xs space-y-1.5 text-[#21150F]">
-                      {order.items.map((item) => (
-                        <li key={item.id} className="flex justify-between items-center">
-                          <span>
-                            <strong className="font-mono text-[#D98943] mr-1.5">{item.quantity}×</strong> {item.product_name}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                  {order.delivery_instructions && (
+                    <div className="text-[11px] text-[#8A7668] bg-[#FAF4EC] p-2.5 rounded-xl font-serif italic border border-[#E8DAC8]/60">
+                      Note: "{order.delivery_instructions}"
+                    </div>
+                  )}
 
+                  {/* Checklist Summary */}
+                  <div className="pt-2 text-[11px] text-[#8A7668] flex items-center justify-between font-mono">
+                    <span>{order.items.length} items in thermal seal</span>
+                    <span className="font-bold text-[#21150F]">${order.total_price.toFixed(2)}</span>
+                  </div>
                 </div>
 
-                {/* Tactile Big Action Buttons */}
-                <div className="p-4 bg-[#FAF4EC] border-t border-[#E8DAC8]">
-                  {activeTab === 'available' && (
+                {/* Actions */}
+                <div className="pt-3 border-t border-[#FAF4EC]">
+                  {/* Action 1: Accept Order */}
+                  {activeTab === 'available' && order.id && (
                     <button
                       disabled={isBusy}
-                      onClick={() => handleAcceptOrder(order.id)}
-                      className="w-full h-12 bg-[#21150F] hover:bg-[#D98943] text-[#F3E9DC] hover:text-[#21150F] font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all disabled:opacity-50 cursor-pointer"
+                      onClick={() => handleAcceptOrder(order.id!)}
+                      className="w-full py-3 bg-[#21150F] hover:bg-[#D98943] text-[#FAFAF7] hover:text-[#21150F] font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-sm cursor-pointer disabled:opacity-50"
                     >
                       <Bike className="w-4 h-4" />
                       <span>Accept Delivery Order</span>
                     </button>
                   )}
 
-                  {activeTab === 'active' && (
-                    <>
-                      {order.status !== 'PICKED_UP' ? (
-                        <button
-                          disabled={isBusy}
-                          onClick={() => handlePickupOrder(order.id)}
-                          className="w-full h-12 bg-[#D98943] hover:bg-[#E8A264] text-[#21150F] font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all disabled:opacity-50 cursor-pointer"
-                        >
-                          <PackageCheck className="w-4 h-4" />
-                          <span>Confirm Picked Up from Coffee Shop</span>
-                        </button>
-                      ) : (
-                        <button
-                          disabled={isBusy}
-                          onClick={() => handleDeliverOrder(order.id)}
-                          className="w-full h-12 bg-[#21150F] hover:bg-[#2D5A43] text-[#F3E9DC] font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all disabled:opacity-50 cursor-pointer"
-                        >
-                          <CheckCircle2 className="w-4 h-4 text-[#D98943]" />
-                          <span>Confirm Handed to Guest</span>
-                        </button>
-                      )}
-                    </>
+                  {/* Action 2: Pickup Order */}
+                  {activeTab === 'active' && ['COURIER_ASSIGNED', 'READY_FOR_PICKUP'].includes(order.status) && order.id && (
+                    <button
+                      disabled={isBusy}
+                      onClick={() => handlePickupOrder(order.id!)}
+                      className="w-full py-3 bg-[#D98943] hover:bg-[#E8A264] text-[#21150F] font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-sm cursor-pointer disabled:opacity-50"
+                    >
+                      <PackageCheck className="w-4 h-4" />
+                      <span>Confirm Package Pickup at Coffee Shop</span>
+                    </button>
                   )}
 
+                  {/* Action 3: Complete Delivery */}
+                  {activeTab === 'active' && order.status === 'PICKED_UP' && order.id && (
+                    <button
+                      disabled={isBusy}
+                      onClick={() => handleDeliverOrder(order.id!)}
+                      className="w-full py-3 bg-[#2D5A43] hover:bg-[#3B7558] text-[#FAFAF7] font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-sm cursor-pointer disabled:opacity-50"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Confirm Delivered to Customer</span>
+                    </button>
+                  )}
+
+                  {/* Completed Badge */}
                   {activeTab === 'completed' && (
-                    <div className="w-full py-3 bg-[#E8F2EC] border border-[#2D5A43]/30 text-[#2D5A43] text-xs font-mono font-bold rounded-xl text-center flex items-center justify-center gap-2">
+                    <div className="flex items-center justify-center gap-2 text-xs font-mono font-bold text-[#2D5A43] py-2 bg-[#E8F2EC] rounded-xl border border-[#2D5A43]/20">
                       <Check className="w-4 h-4" />
-                      <span>Delivered Successfully</span>
+                      <span>Delivery Successfully Completed</span>
                     </div>
                   )}
                 </div>
-
               </div>
             );
           })}
