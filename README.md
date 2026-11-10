@@ -1,11 +1,11 @@
 # Coyote Delivery 1.1
 
-**Global Coffee Г— Coyote Mini-Hackathon вЂ” Case 01: Own Delivery Based on Coyote POS**
+**Global Coffee Г— Coyote Mini-Hackathon ” Case 01: Own Delivery Based on Coyote POS**
 
 Coyote Delivery is a full-stack, role-based coffee delivery system that demonstrates how a specialty coffee shop can manage its own direct delivery operations in one connected system.
 
 The prototype bridges four user roles with real backend authentication, role-based access control (RBAC), concurrency safeguards, and secure order tracking:
-1. **Customer** вЂ” browses menu, places orders with server-side price verification, and tracks delivery using unguessable tokens.
+1. **Customer** ” browses menu, places orders with server-side price verification, and tracks delivery using unguessable tokens.
 2. **Coffee Shop Staff** вЂ” kitchen order ticket management, recipe brewing status progression, and courier dispatch.
 3. **Courier Fleet** вЂ” mobile-friendly field interface for accepting, picking up, and completing deliveries.
 4. **Store Admin / Manager** вЂ” store metrics, sales revenue analytics, product menu catalog management, and fleet/user RBAC access control.
