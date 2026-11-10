@@ -1,6 +1,6 @@
 # Coyote Delivery 1.1
 
-**Global Coffee Г— Coyote Mini-Hackathon ” Case 01: Own Delivery Based on Coyote POS**
+**Global Coffee — Coyote Mini-Hackathon ” Case 01: Own Delivery Based on Coyote POS**
 
 Coyote Delivery is a full-stack, role-based coffee delivery system that demonstrates how a specialty coffee shop can manage its own direct delivery operations in one connected system.
 
