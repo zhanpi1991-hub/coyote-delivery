@@ -6,9 +6,9 @@ Coyote Delivery is a full-stack, role-based coffee delivery system that demonstr
 
 The prototype bridges four user roles with real backend authentication, role-based access control (RBAC), concurrency safeguards, and secure order tracking:
 1. **Customer** ” browses menu, places orders with server-side price verification, and tracks delivery using unguessable tokens.
-2. **Coffee Shop Staff** вЂ” kitchen order ticket management, recipe brewing status progression, and courier dispatch.
-3. **Courier Fleet** вЂ” mobile-friendly field interface for accepting, picking up, and completing deliveries.
-4. **Store Admin / Manager** вЂ” store metrics, sales revenue analytics, product menu catalog management, and fleet/user RBAC access control.
+2. **Coffee Shop Staff** ” kitchen order ticket management, recipe brewing status progression, and courier dispatch.
+3. **Courier Fleet** ” mobile-friendly field interface for accepting, picking up, and completing deliveries.
+4. **Store Admin / Manager** ” store metrics, sales revenue analytics, product menu catalog management, and fleet/user RBAC access control.
 
 > **Project status:** Fully hardened hackathon MVP (Version 1.1)
 > **Architecture note:** This prototype runs on its own FastAPI backend and SQLite database. While it models the exact operational workflow of a coffee shop POS, it does not claim verified real-time sync with external proprietary Coyote POS hardware.
